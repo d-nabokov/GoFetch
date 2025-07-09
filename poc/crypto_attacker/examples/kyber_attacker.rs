@@ -86,6 +86,7 @@ fn kyber_hacker(
     let mut global_pp_idx: usize = 0;
     let mut global_flush_group_idx = 0;
     let mut result_file = File::create("kyber.txt").unwrap();
+    let mut stats_file = File::create("kyber_accuracy.txt").unwrap();
     let mut pp_idx = 0;
     let mut pointer_idx = 0;
     let mut poly_idx = 0;
@@ -565,6 +566,8 @@ fn kyber_hacker(
                     let mut success_flag = 1;
                     let mut guess_result: i16 = 0;
                     
+                    let window_index: usize = KYBER_N as usize *poly_idx + pointer_idx * 64 + bit_idx;
+                    write!(stats_file, "bit:{} mode:{}\n", window_index, mode).unwrap();
                     for guess_idx in 0..guess_idx_mask as usize {
                         let mut store_offset: usize = guess_idx;
                         let mut positive_flag = 0;
@@ -573,8 +576,10 @@ fn kyber_hacker(
                         for _ in 0..repetitions {
                             let test_case = times_to_load_test_ptr_atk[store_offset];
                             test_atk_tmp.push(test_case);
+                            write!(stats_file, "{} ", test_case).unwrap();
                             store_offset += guess_idx_mask as usize;
                         }
+                        write!(stats_file, "\n").unwrap();
                         test_atk_tmp.sort();
                         let median_test = test_atk_tmp[(test_atk_tmp.len() / 2 - 1) as usize];
                         println!("get {}: {}", guess_idx, median_test);
@@ -601,7 +606,7 @@ fn kyber_hacker(
                             break;
                         }
                     }
-                    let window_index: usize = KYBER_N as usize *poly_idx + pointer_idx * 64 + bit_idx;
+                    
                     if success_flag == 1 {
                         noisy_times = 0;
                         if guess_result != global_guess_result {
