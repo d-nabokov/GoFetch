@@ -712,11 +712,10 @@ fn main() {
     let first_pointer_offset = (victim_buf_offset as usize) & 0x3f80;
     for pointer_idx in 1..4 {
         let offset = (victim_buf_offset as usize + pointer_idx * size_of::<u64>()) & 0x3f80;
-        if first_pointer_offset != pointer_idx {
+        if first_pointer_offset != offset {
             panic!("Full rotation checks are not going to work with given victim_buf_offset");
         }
     }
-    panic!("All good!");
 
     unsafe{ pin_cpu(4); }
 
