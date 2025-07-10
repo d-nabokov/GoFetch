@@ -113,14 +113,13 @@ static void pack_ct_attack(uint8_t r[KYBER_INDCPA_BYTES],
   uint8_t t[8];
 
   poly_csubq(v);
-
+  #if (KYBER_POLYCOMPRESSEDBYTES == 128)
   for(i=0;i<KYBER_N/8;i++) {
-    for(j=0;j<8;j++) {
+    for(j=0;j<8;j++)
       if((int)(8*i+j) == index)
         t[j] = guess;
       else
         t[j] = ((((uint16_t)v->coeffs[8*i+j] << 4) + KYBER_Q/2)/KYBER_Q) & 15;
-    }
 
     r[0] = t[0] | (t[1] << 4);
     r[1] = t[2] | (t[3] << 4);
@@ -128,6 +127,24 @@ static void pack_ct_attack(uint8_t r[KYBER_INDCPA_BYTES],
     r[3] = t[6] | (t[7] << 4);
     r += 4;
   }
+#elif (KYBER_POLYCOMPRESSEDBYTES == 160)
+  for(i=0;i<KYBER_N/8;i++) {
+    for(j=0;j<8;j++)
+      if((int)(8*i+j) == index)
+        t[j] = guess;
+      else
+        t[j] = ((((uint32_t)v->coeffs[8*i+j] << 5) + KYBER_Q/2)/KYBER_Q) & 31;
+
+    r[0] = (t[0] >> 0) | (t[1] << 5);
+    r[1] = (t[1] >> 3) | (t[2] << 2) | (t[3] << 7);
+    r[2] = (t[3] >> 1) | (t[4] << 4);
+    r[3] = (t[4] >> 4) | (t[5] << 1) | (t[6] << 6);
+    r[4] = (t[6] >> 2) | (t[7] << 3);
+    r += 5;
+  }
+#else
+#error "KYBER_POLYCOMPRESSEDBYTES needs to be in {128, 160}"
+#endif
 }
 
 /*************************************************
