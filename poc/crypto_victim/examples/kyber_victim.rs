@@ -27,13 +27,13 @@ fn handle_client(
         };
     };
     // Store the sk coefficients
-    let mut coeffs_vec: [i16; KYBER_K*KYBER_N as usize] = [0; KYBER_K*KYBER_N as usize];
+    let mut coeffs_vec: [i16; (KYBER_K*KYBER_N) as usize] = [0; (KYBER_K*KYBER_N) as usize];
     unsafe{ pqcrystals_kyber768_ref_indcpa_get_sk_coef(sk.as_ptr() as *const c_uchar, coeffs_vec.as_mut_ptr() as *mut i16); }
 
     // Store the private key
     let sk_file_path: &str = "kyber.txt";
     let mut sk_file: File = File::create(sk_file_path).unwrap();
-    for i in 0..KYBER_K*KYBER_N as usize{
+    for i in 0..(KYBER_K*KYBER_N) as usize{
         write!(sk_file, "{}\n", coeffs_vec[i]).unwrap();
     }
 
