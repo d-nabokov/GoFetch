@@ -1,6 +1,6 @@
 use libaugury_ffi_sys::pin_cpu;
-use libkyber_ffi_sys::{pqcrystals_kyber768_ref_keypair, pqcrystals_kyber768_ref_dec,
-    pqcrystals_kyber768_ref_indcpa_get_sk_coef, CRYPTO_PUBLICKEYBYTES, 
+use libkyber_ffi_sys::{pqcrystals_kyber512_ref_keypair, pqcrystals_kyber512_ref_dec,
+    pqcrystals_kyber512_ref_indcpa_get_sk_coef, CRYPTO_PUBLICKEYBYTES, 
     CRYPTO_SECRETKEYBYTES, CRYPTO_BYTES, CRYPTO_CIPHERTEXTBYTES, KYBER_N, KYBER_K};
 // std lib
 use std::os::raw::c_uchar;
@@ -21,14 +21,14 @@ fn handle_client(
     let mut sk: [u8; CRYPTO_SECRETKEYBYTES as usize] = [0; CRYPTO_SECRETKEYBYTES as usize];
     // Generate the public/private keypair
     unsafe {
-        match pqcrystals_kyber768_ref_keypair(pk.as_mut_ptr() as *mut c_uchar, sk.as_mut_ptr() as *mut c_uchar) {
+        match pqcrystals_kyber512_ref_keypair(pk.as_mut_ptr() as *mut c_uchar, sk.as_mut_ptr() as *mut c_uchar) {
             0 => println!("[+] PK/SK are successfully generated!"),
             _ => panic!("Fail to generate PK/SK!")
         };
     };
     // Store the sk coefficients
     let mut coeffs_vec: [i16; (KYBER_K*KYBER_N) as usize] = [0; (KYBER_K*KYBER_N) as usize];
-    unsafe{ pqcrystals_kyber768_ref_indcpa_get_sk_coef(sk.as_ptr() as *const c_uchar, coeffs_vec.as_mut_ptr() as *mut i16); }
+    unsafe{ pqcrystals_kyber512_ref_indcpa_get_sk_coef(sk.as_ptr() as *const c_uchar, coeffs_vec.as_mut_ptr() as *mut i16); }
 
     // Store the private key
     let sk_file_path: &str = "kyber.txt";
@@ -55,7 +55,7 @@ fn handle_client(
         // println!("Receive cipher text");
 
         let flag = unsafe {
-            pqcrystals_kyber768_ref_dec(ss1.as_mut_ptr() as *mut c_uchar, 
+            pqcrystals_kyber512_ref_dec(ss1.as_mut_ptr() as *mut c_uchar, 
             ct.as_ptr() as *const c_uchar, 
             sk.as_ptr() as *const c_uchar)
         };

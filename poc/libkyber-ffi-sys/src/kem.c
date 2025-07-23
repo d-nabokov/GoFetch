@@ -169,7 +169,8 @@ int crypto_kem_dec(unsigned char *ss,
 {
   size_t i;
   int fail;
-  uint8_t buf[2*KYBER_SYMBYTES] __attribute__((aligned(32)));
+  // uint8_t buf[2*KYBER_SYMBYTES] __attribute__((aligned(32)));
+  uint8_t buf[2*KYBER_SYMBYTES];
 #ifdef PRINT
   printf("tmp addr: %p\n", buf);  // profile the page offset of victim array addr
 #endif
