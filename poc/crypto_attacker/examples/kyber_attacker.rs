@@ -464,7 +464,7 @@ fn kyber_hacker(
     // instead of creating a ciphertext here, we rely on a smart process that will submit us
     // with them, we just need to measure the timing, i.e. we are implementing an oracle here
     let oracle_repetitions: u16 = 32;
-    let ct_idx: u16 = 0;
+    let mut ct_idx: u16 = 0;
 
     // Send random mask and masked pointer so that constructed ciphertext is decrypted into
     // message containing victim pointer
