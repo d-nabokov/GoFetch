@@ -545,8 +545,8 @@ fn kyber_hacker(
         write!(ct_received, "\n").unwrap();
         let mut successes: u16 = 0;
         for test_time in times_to_load_test_ptr_atk {
-            // If time is low, we got target_ptr, i.e. inequality is satisfied
-            if test_time < threshold_leak {
+            // If time is high, we got target_ptr, i.e. inequality is satisfied
+            if test_time >= threshold_leak {
                 successes += 1;
             }
         }
