@@ -77,7 +77,7 @@ fn log_sum_exp(a: f64, b: f64) -> f64 {
 }
 
 /// posterior P(class = 0 | measurements) with uniform prior
-fn posterior_p0(times: &[u32]) -> (f64, usize) {
+fn posterior_p0(times: &[u64]) -> (f64, usize) {
     let mut log_lik_0 = 0.0;
     let mut log_lik_1 = 0.0;
     let mut skipped = 0usize;
