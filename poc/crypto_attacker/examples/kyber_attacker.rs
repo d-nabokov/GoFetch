@@ -56,8 +56,8 @@ const SIGMA_0: f64 = 287.402;
 const MU_1:    f64 = 858.235;
 const SIGMA_1: f64 = 242.153;
 
-const T_MIN: u32 = 1;
-const T_MAX: u32 = 1500;
+const T_MIN: u64 = 1;
+const T_MAX: u64 = 1500;
 
 #[inline(always)]
 fn log_pdf(t: f64, mu: f64, sigma: f64) -> f64 {
