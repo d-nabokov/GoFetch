@@ -593,8 +593,7 @@ fn kyber_hacker(
 
         let (p0, skipped) = posterior_p0(&times_to_load_test_ptr_atk);
         total_skipped_calls += skipped;
-        // sending out probability of 1
-        oracle_stream.write_all(&(1 as f64 - p0).to_be_bytes()).unwrap();
+        oracle_stream.write_all(&p0.to_be_bytes()).unwrap();
     }
     println!("Key recovery took {} measurements, filtered out {} of them; total used = {}", total_calls, total_skipped_calls, total_calls - total_skipped_calls);
     threshold_v.clear();
