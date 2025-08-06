@@ -76,8 +76,8 @@ fn log_sum_exp(a: f64, b: f64) -> f64 {
     }
 }
 
-/// posterior P(class = 1 | measurements) with uniform prior
-fn posterior_p1(times: &[u64]) -> (f64, usize) {
+/// posterior P(class = 0 | measurements) with uniform prior
+fn posterior_p0(times: &[u64]) -> (f64, usize) {
     let mut log_lik_0 = 0.0;
     let mut log_lik_1 = 0.0;
     let mut skipped = 0usize;
@@ -591,9 +591,10 @@ fn kyber_hacker(
         }
         total_calls += oracle_repetitions;
 
-        let (p1, skipped) = posterior_p1(&times_to_load_test_ptr_atk);
+        let (p0, skipped) = posterior_p0(&times_to_load_test_ptr_atk);
         total_skipped_calls += skipped;
-        oracle_stream.write_all(&(1 as f64 - p1).to_be_bytes()).unwrap();
+        // sending out probability of 1
+        oracle_stream.write_all(&(1 as f64 - p0).to_be_bytes()).unwrap();
     }
     println!("Key recovery took {} measurements, filtered out {} of them; total used = {}", total_calls, total_skipped_calls, total_calls - total_skipped_calls);
     threshold_v.clear();
