@@ -51,12 +51,12 @@ fn get_ptr_ct(ptr: *mut u64, target_ptr: u64, pos: usize, rand_mask: u64, rng: &
 }
 
 // Hard-coded values!
-const MU_0:    f64 = 677.412;
-const SIGMA_0: f64 = 287.402;
-const MU_1:    f64 = 858.235;
-const SIGMA_1: f64 = 242.153;
+const MU_0:    f64 = 622.712;
+const SIGMA_0: f64 = 149.085;
+const MU_1:    f64 = 813.906;
+const SIGMA_1: f64 = 119.083;
 
-const T_MIN: u64 = 1;
+const T_MIN: u64 = 450;
 const T_MAX: u64 = 1500;
 
 #[inline(always)]
