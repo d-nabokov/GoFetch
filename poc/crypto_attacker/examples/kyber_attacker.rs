@@ -535,7 +535,7 @@ fn kyber_hacker(
         ct_idx += 1;
 
         let mut times_to_load_test_ptr_atk = Vec::with_capacity(ct_repetitions);
-        let mut measurements_for_this_ct: u32 = 0;
+        let mut measurements_for_this_ct: usize = 0;
         while times_to_load_test_ptr_atk.len() < ct_repetitions {
             measurements_for_this_ct += 1;
 
@@ -594,7 +594,7 @@ fn kyber_hacker(
 
         let p0 = posterior_p0(&times_to_load_test_ptr_atk);
         oracle_stream.write_all(&p0.to_be_bytes()).unwrap();
-        oracle_stream.write_all(&measurements_for_this_ct.to_be_bytes()).unwrap();
+        oracle_stream.write_all(&(measurements_for_this_ct as u32).to_be_bytes()).unwrap();
     }
     println!("Key recovery took {} measurements, filtered out {} of them; total used = {}", total_calls, total_skipped_calls, total_calls - total_skipped_calls);
     threshold_v.clear();
