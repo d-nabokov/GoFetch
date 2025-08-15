@@ -589,9 +589,9 @@ fn kyber_hacker(
             stream.write_all(&ct_rand).unwrap();
             stream.read_exact(&mut msg_data).unwrap();
 
-            if (times_to_load_test_ptr_atk.len() >= ct_repetitions) {
+            if times_to_load_test_ptr_atk.len() >= ct_repetitions {
                 let p0 = posterior_p0(&times_to_load_test_ptr_atk);
-                if abs(0.5 - p0) > (0.5 - RELIABILITY_THRESHOLD) {
+                if (0.5 - p0).abs() > (0.5 - RELIABILITY_THRESHOLD) {
                     break;
                 }
             }
