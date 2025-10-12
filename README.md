@@ -1,6 +1,7 @@
-# GoFetch
-This repository is the open-source code for our USENIX Security 2024 paper: *GoFetch: Breaking Constant-Time Cryptographic Implementations Using Data Memory-Dependent Prefetchers*.
-Please check our [website](https://gofetch.fail/) for more information.
+# GoFetch with improved DF-oracle
+This repository is the open-source code for the modified GoFetch attack described in the 2025 paper: Unlocking the True Potential of Decryption Failure Oracles: A Hybrid Adaptive-LDPC Attack on ML-KEM Using Imperfect Oracles
+
+The following description copies the original repository.
 
 ## Introduction
 GoFetch is a microarchitectural side-channel attack that can extract secret keys from constant-time cryptographic implementations via data memory-dependent prefetchers (DMPs).
